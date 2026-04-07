@@ -13,8 +13,10 @@
 
 ## 安装依赖
 
+本项目依赖 Camoufox 的 GeoIP 能力，不能只安装基础版 `camoufox`，需要安装带 `geoip` extra 的版本：
+
 ```bash
-pip install camoufox playwright
+pip install "camoufox[geoip]" playwright
 ```
 
 ## 使用方法
@@ -67,14 +69,32 @@ python browser.py -proxy http://127.0.0.1:7890 -os windows -headless -block-imag
 
 ### 安装 PyInstaller
 
+建议先进入项目虚拟环境，再在该虚拟环境里安装并调用 PyInstaller：
+
 ```bash
 pip install pyinstaller
+python -m PyInstaller --version
+```
+
+注意：不要直接使用系统里的全局 `pyinstaller` 命令来打包，否则很可能会误用其他 Python 解释器，导致日志里出现类似下面的信息：
+
+```text
+Python: 3.13.5
+Python environment: D:\project\python\python313
+```
+
+一旦 PyInstaller 实际运行在错误的 Python 环境下，即使你已经在项目 `.venv` 里安装了 `camoufox[geoip]`，打包产物里也还是会缺少 `camoufox`，最终运行时报错：
+
+```text
+ModuleNotFoundError: No module named 'camoufox'
 ```
 
 ### 推荐打包命令（onefile）
 
+请在已经安装好项目依赖的虚拟环境中执行：
+
 ```bash
-pyinstaller --noconfirm --clean --name camoufox-geoip --onefile --collect-all camoufox --collect-all playwright --collect-all browserforge --collect-all apify_fingerprint_datapoints --collect-all language_tags browser.py
+python -m PyInstaller --noconfirm --clean --name camoufox-geoip --onefile --collect-all camoufox --collect-all playwright --collect-all browserforge --collect-all apify_fingerprint_datapoints --collect-all language_tags browser.py
 ```
 
 之所以需要这些 `--collect-all`，是因为依赖里包含运行时读取的 zip/json 数据文件，默认打包经常漏掉。
@@ -122,7 +142,7 @@ camoufox-geoip.exe -proxy http://127.0.0.1:7890 https://example.com
 如果你更关注打包稳定性，也可以使用 `--onedir`：
 
 ```bash
-pyinstaller --noconfirm --clean --name camoufox-geoip --onedir --collect-all camoufox --collect-all playwright --collect-all browserforge --collect-all apify_fingerprint_datapoints --collect-all language_tags browser.py
+python -m PyInstaller --noconfirm --clean --name camoufox-geoip --onedir --collect-all camoufox --collect-all playwright --collect-all browserforge --collect-all apify_fingerprint_datapoints --collect-all language_tags browser.py
 ```
 
 注意：`onedir` 模式下不要只拷出 exe，必须保留整个输出目录。
@@ -184,7 +204,45 @@ manager = await create_browser(
 - 当前工作目录
 - 环境变量 `CAMOUFOX_PATH` 指定的路径
 
-### 2. 打包后运行提示缺少 zip/json 数据文件
+另外，如果你要使用 GeoIP 功能，必须先安装带 extra 的依赖：
+
+```bash
+pip install -U "camoufox[geoip]"
+```
+
+### 2. 打包后运行提示 `ModuleNotFoundError: No module named 'camoufox'`
+
+如果打包产物启动时看到类似：
+
+```text
+ModuleNotFoundError: No module named 'camoufox'
+```
+
+通常不是因为你没装依赖，而是因为 **打包时实际使用的不是项目虚拟环境里的 Python**。
+
+例如你虽然已经激活了 `.venv`，但执行的 `pyinstaller` 仍然可能来自全局 Python；这时构建日志里会出现错误的解释器路径，例如：
+
+```text
+Python environment: D:\project\python\python313
+```
+
+解决方法：
+
+1. 确保项目虚拟环境里已经安装依赖：
+
+```bash
+pip install -U "camoufox[geoip]" playwright pyinstaller
+```
+
+2. 不要直接调用全局 `pyinstaller`，改为在虚拟环境里执行：
+
+```bash
+python -m PyInstaller --noconfirm --clean --name camoufox-geoip --onedir --collect-all camoufox --collect-all playwright --collect-all browserforge --collect-all apify_fingerprint_datapoints --collect-all language_tags browser.py
+```
+
+3. 打包后先检查日志中的 `Python environment` 是否指向你的项目虚拟环境。
+
+### 3. 打包后运行提示缺少 zip/json 数据文件
 
 如果看到类似下面的报错：
 
@@ -193,7 +251,7 @@ manager = await create_browser(
 
 说明打包时没有把依赖的数据文件收进去。请使用 README 中的推荐打包命令重新打包。
 
-### 3. `onedir` 模式提示缺少 `python312.dll`
+### 4. `onedir` 模式提示缺少 `python312.dll`
 
 如果出现类似：
 
@@ -203,7 +261,7 @@ Failed to load Python DLL '...\\_internal\\python312.dll'
 
 通常是因为只复制了 exe，没有保留整个 `onedir` 输出目录。
 
-### 4. 代理连接失败
+### 5. 代理连接失败
 
 请检查：
 
@@ -211,7 +269,7 @@ Failed to load Python DLL '...\\_internal\\python312.dll'
 - 代理服务是否正在运行
 - 本机防火墙或安全软件是否拦截
 
-### 5. 关闭浏览器时出现 cleanup 日志错误
+### 6. 关闭浏览器时出现 cleanup 日志错误
 
 如果在你手动关闭浏览器窗口后看到类似连接关闭的 cleanup 日志，通常只是收尾阶段的日志噪音，不影响主流程是否启动成功。
 
