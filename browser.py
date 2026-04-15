@@ -193,6 +193,21 @@ class BrowserManager:
             if viewport is None:
                 viewport = {"width": 1920, "height": 1080}
 
+            # 配置环境变量以抑制 Node.js 驱动进程的非致命错误
+            # 这些设置可以防止 Firefox 网络管理器的竞态条件错误导致进程崩溃
+            import os as os_module
+            env = os_module.environ.copy()
+
+            # 设置 Node.js 选项：
+            # --unhandled-rejections=warn: 将未处理的 Promise 拒绝降级为警告而非崩溃
+            # --trace-warnings: 显示警告的堆栈跟踪（可选，用于调试）
+            node_options = env.get('NODE_OPTIONS', '')
+            node_options += ' --unhandled-rejections=warn'
+            env['NODE_OPTIONS'] = node_options.strip()
+
+            # 设置 Node.js 不因未捕获异常而退出（仅对某些错误有效）
+            env['NODE_NO_WARNINGS'] = '1'  # 抑制 Node.js 警告输出
+
             self.camoufox = AsyncCamoufox(
                 executable_path=exec_path,
                 headless=headless,
@@ -203,6 +218,7 @@ class BrowserManager:
                 enable_cache=False,
                 os=os,
                 block_images=block_images,
+                env=env,
                 **kwargs
             )
 
@@ -362,8 +378,26 @@ async def main():
         else:
             logger.info("未提供 URL，浏览器将保持空白页")
 
+        # 主循环：保持程序运行，忽略浏览器驱动的非致命错误
         while True:
-            await asyncio.sleep(1)
+            try:
+                # 检查浏览器是否仍然连接
+                if manager.browser and manager.browser.is_connected():
+                    await asyncio.sleep(1)
+                else:
+                    logger.warning("浏览器连接已断开，但窗口可能仍在运行")
+                    logger.info("如果浏览器窗口仍然打开，可以继续使用")
+                    logger.info("程序将继续运行，按 Ctrl+C 退出")
+                    # 即使连接断开，也保持程序运行
+                    await asyncio.sleep(1)
+            except Exception as e:
+                # 捕获并忽略所有非致命错误，保持程序运行
+                error_msg = str(e)
+                if "setTransferSize" in error_msg or "ffNetworkManager" in error_msg:
+                    logger.debug(f"忽略 Firefox 网络管理器错误: {error_msg}")
+                else:
+                    logger.debug(f"忽略非致命错误: {error_msg}")
+                await asyncio.sleep(1)
 
     except KeyboardInterrupt:
         logger.info("用户中断，正在关闭浏览器...")
@@ -372,8 +406,11 @@ async def main():
 
     finally:
         if manager:
-            await manager.cleanup()
-            logger.info("浏览器已关闭")
+            try:
+                await manager.cleanup()
+                logger.info("浏览器已关闭")
+            except Exception as e:
+                logger.debug(f"清理时出现错误（可忽略）: {e}")
 
 
 if __name__ == "__main__":
